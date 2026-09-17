@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FastAPI 모던 게시판</title>
+  <meta name="description" content="FastAPI와 SQLite로 구현된 빠르고 현대적인 웹 게시판 서비스" />
+
+  <!-- 웹 폰트: Pretendard & Inter -->
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- 스타일시트 -->
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body data-theme="light">
+  <!-- 배경 장식용 그라디언트 글로우 -->
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+
+  <!-- 전체 레이아웃 래퍼 -->
+  <div class="app-container">
+    <!-- 상단 네비게이션 헤더 -->
+    <header class="navbar">
+      <div class="nav-brand">
+        <div class="brand-logo">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"></path>
+            <path d="M6 6h10"></path>
+            <path d="M6 10h10"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>FastAPI Board</h1>
+          <span class="badge-tech">SQLite 3</span>
+        </div>
+      </div>
+
+      <div class="nav-actions">
+        <!-- 테마 전환 버튼 (라이트/다크) -->
+        <button id="themeToggleBtn" class="btn-icon" title="테마 변경" aria-label="테마 전환">
+          <svg id="themeIconSun" class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+          <svg id="themeIconMoon" class="icon hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+          </svg>
+        </button>
+
+        <!-- 새 글 작성 버튼 -->
+        <button id="openWriteModalBtn" class="btn btn-primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span>글쓰기</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- 메인 대시보드 및 컨트롤 바 -->
+    <main class="main-content">
+      <!-- 상단 컨트롤 섹션: 카테고리 필터 탭 & 검색창 -->
+      <section class="controls-section">
+        <!-- 카테고리 탭 목록 -->
+        <div class="category-tabs" id="categoryTabs">
+          <button class="cat-tab active" data-category="전체">
+            전체 <span class="cat-count" id="countAll">0</span>
+          </button>
+          <button class="cat-tab" data-category="공지">
+            공지 <span class="cat-count" id="countNotice">0</span>
+          </button>
+          <button class="cat-tab" data-category="자유">
+            자유 <span class="cat-count" id="countFree">0</span>
+          </button>
+          <button class="cat-tab" data-category="질문">
+            질문 <span class="cat-count" id="countQna">0</span>
+          </button>
+          <button class="cat-tab" data-category="정보">
+            정보 <span class="cat-count" id="countInfo">0</span>
+          </button>
+        </div>
+
+        <!-- 검색창 -->
+        <div class="search-box">
+          <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="searchInput" placeholder="제목, 내용, 작성자 검색..." autocomplete="off" />
+          <button id="clearSearchBtn" class="btn-clear hidden" title="검색어 지우기">&times;</button>
+        </div>
+      </section>
+
+      <!-- 상태 안내 및 총 개수 바 -->
+      <div class="status-bar">
+        <div class="status-info">
+          총 <strong id="totalCountText">0</strong>개의 게시글이 있습니다.
+        </div>
+        <div class="status-sort">
+          <span class="sort-tag">최신 등록순</span>
+        </div>
+      </div>
+
+      <!-- 게시글 카드 그리드 컨테이너 -->
+      <section class="posts-grid" id="postsGrid">
+        <!-- JS로 동적 렌더링될 영역 -->
+      </section>
+
+      <!-- 빈 목록 안내 뷰 -->
+      <div class="empty-state hidden" id="emptyState">
+        <div class="empty-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="12" y1="18" x2="12" y2="12"></line>
+            <line x1="9" y1="15" x2="15" y2="15"></line>
+          </svg>
+        </div>
+        <h3>등록된 게시글이 없습니다</h3>
+        <p>새로운 소식이나 생각을 첫 번째로 작성해 보세요!</p>
+        <button class="btn btn-primary" onclick="app.openWriteModal()">첫 글 작성하기</button>
+      </div>
+
+      <!-- 페이지네이션 컨트롤 -->
+      <div class="pagination-container" id="pagination">
+        <!-- JS로 페이지 버튼 렌더링 -->
+      </div>
+    </main>
+
+    <!-- 푸터 -->
+    <footer class="app-footer">
+      <p>Powered by <strong>FastAPI</strong> & <strong>SQLite</strong> &bull; 모던 반응형 웹 애플리케이션</p>
+      <div class="api-link">
+        <a href="/docs" target="_blank" rel="noopener noreferrer">FastAPI Swagger API 문서 보기 &rarr;</a>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- 모달 1: 글쓰기 모달 -->
+  <!-- ========================================================= -->
+  <div class="modal-overlay hidden" id="writeModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>새 게시글 작성</h2>
+        <button class="btn-close" onclick="app.closeModal('writeModal')">&times;</button>
+      </div>
+      <form id="writeForm" onsubmit="app.handleCreatePost(event)">
+        <div class="modal-body">
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="writeCategory">카테고리 <span class="req">*</span></label>
+              <select id="writeCategory" required>
+                <option value="일반">일반</option>
+                <option value="공지">공지</option>
+                <option value="자유">자유</option>
+                <option value="질문">질문</option>
+                <option value="정보">정보</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="writeAuthor">작성자 <span class="req">*</span></label>
+              <input type="text" id="writeAuthor" placeholder="작성자명 (최대 20자)" maxlength="20" required />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="writePassword">비밀번호 (수정/삭제용) <span class="req">*</span></label>
+            <input type="password" id="writePassword" placeholder="4자리 이상의 비밀번호 입력" minlength="4" required />
+            <small class="form-hint">글을 수정하거나 삭제할 때 사용되는 비밀번호입니다.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="writeTitle">제목 <span class="req">*</span></label>
+            <input type="text" id="writeTitle" placeholder="제목을 입력하세요" maxlength="150" required />
+          </div>
+
+          <div class="form-group">
+            <label for="writeContent">내용 <span class="req">*</span></label>
+            <textarea id="writeContent" rows="7" placeholder="게시글 내용을 자세히 입력하세요..." required></textarea>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="app.closeModal('writeModal')">취소</button>
+          <button type="submit" class="btn btn-primary" id="btnSubmitWrite">작성 완료</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- 모달 2: 게시글 상세 모달 -->
+  <!-- ========================================================= -->
+  <div class="modal-overlay hidden" id="viewModal">
+    <div class="modal-card modal-large">
+      <div class="modal-header">
+        <div class="view-header-meta">
+          <span class="post-badge" id="viewCategory">카테고리</span>
+          <span class="view-date" id="viewDate">2026.09.17</span>
+        </div>
+        <button class="btn-close" onclick="app.closeModal('viewModal')">&times;</button>
+      </div>
+
+      <div class="modal-body view-body">
+        <h2 class="view-title" id="viewTitle">게시글 제목</h2>
+        
+        <div class="view-meta-bar">
+          <div class="view-author">
+            <div class="avatar-circle" id="viewAvatar">작</div>
+            <div>
+              <strong id="viewAuthor">작성자명</strong>
+              <div class="view-id">No. <span id="viewId">1</span></div>
+            </div>
+          </div>
+          <div class="view-stats">
+            <div class="stat-item" title="조회수">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <span id="viewViews">0</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="view-content" id="viewContent">
+          <!-- 게시글 본문이 들어갈 자리 -->
+        </div>
+      </div>
+
+      <div class="modal-footer view-footer">
+        <button class="btn btn-secondary" onclick="app.closeModal('viewModal')">닫기</button>
+        <div class="view-actions">
+          <button class="btn btn-outline" id="btnOpenEdit">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9"></path>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+            </svg>
+            <span>수정</span>
+          </button>
+          <button class="btn btn-danger-outline" id="btnOpenDelete">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            <span>삭제</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- 모달 3: 게시글 수정 모달 -->
+  <!-- ========================================================= -->
+  <div class="modal-overlay hidden" id="editModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>게시글 수정</h2>
+        <button class="btn-close" onclick="app.closeModal('editModal')">&times;</button>
+      </div>
+      <form id="editForm" onsubmit="app.handleUpdatePost(event)">
+        <input type="hidden" id="editPostId" />
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="editCategory">카테고리</label>
+            <select id="editCategory" required>
+              <option value="일반">일반</option>
+              <option value="공지">공지</option>
+              <option value="자유">자유</option>
+              <option value="질문">질문</option>
+              <option value="정보">정보</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="editTitle">제목 <span class="req">*</span></label>
+            <input type="text" id="editTitle" required maxlength="150" />
+          </div>
+
+          <div class="form-group">
+            <label for="editContent">내용 <span class="req">*</span></label>
+            <textarea id="editContent" rows="7" required></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="editPassword">비밀번호 확인 <span class="req">*</span></label>
+            <input type="password" id="editPassword" placeholder="글 작성 시 등록한 비밀번호 입력" required />
+            <small class="form-hint">비밀번호가 일치해야만 수정이 저장됩니다.</small>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="app.closeModal('editModal')">취소</button>
+          <button type="submit" class="btn btn-primary" id="btnSubmitEdit">수정 저장</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- 모달 4: 게시글 삭제 확인 모달 -->
+  <!-- ========================================================= -->
+  <div class="modal-overlay hidden" id="deleteModal">
+    <div class="modal-card modal-small">
+      <div class="modal-header">
+        <h2 class="text-danger">게시글 삭제</h2>
+        <button class="btn-close" onclick="app.closeModal('deleteModal')">&times;</button>
+      </div>
+      <form id="deleteForm" onsubmit="app.handleDeletePost(event)">
+        <input type="hidden" id="deletePostId" />
+        <div class="modal-body">
+          <p class="delete-warning">
+            정말로 이 게시글을 삭제하시겠습니까?<br />
+            <strong>삭제된 글은 영구히 복구할 수 없습니다.</strong>
+          </p>
+          <div class="form-group">
+            <label for="deletePassword">비밀번호 확인 <span class="req">*</span></label>
+            <input type="password" id="deletePassword" placeholder="글 작성 시 등록한 비밀번호" required />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="app.closeModal('deleteModal')">취소</button>
+          <button type="submit" class="btn btn-danger" id="btnSubmitDelete">영구 삭제</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 알림 토스트 컨테이너 -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- 프론트엔드 자바스크립트 로직 -->
+  <script src="/js/app.js"></script>
+</body>
+</html>
