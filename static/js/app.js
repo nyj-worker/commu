@@ -3,6 +3,352 @@
  * 바닐라 자바스크립트(ES6+) 기반 비동기 REST API 클라이언트
  */
 
+/**
+ * 마크다운 에디터 & 툴바 제어 클래스
+ * - 13가지 서식 도구 지원
+ * - 선택 영역(selectionStart/End) 보존 및 자동 템플릿 삽입 UX
+ * - Undo/Redo, 드롭다운 메뉴, 실시간 미리보기 렌더링 지원
+ */
+class MarkdownEditor {
+  constructor({ containerId, textareaId, previewPaneId, previewContentId, editPaneId, addMenuId, moreMenuId }) {
+    this.container = document.getElementById(containerId);
+    this.textarea = document.getElementById(textareaId);
+    this.previewPane = document.getElementById(previewPaneId);
+    this.previewContent = document.getElementById(previewContentId);
+    this.editPane = document.getElementById(editPaneId);
+    this.addMenu = document.getElementById(addMenuId);
+    this.moreMenu = document.getElementById(moreMenuId);
+
+    if (this.container && this.textarea) {
+      this.initEvents();
+    }
+  }
+
+  // 이벤트 리스너 등록
+  initEvents() {
+    const toolbar = this.container.querySelector(".markdown-toolbar");
+    if (toolbar) {
+      // 툴바 버튼 클릭 시 textarea의 포커스 및 선택 영역이 풀리지 않도록 mousedown 이벤트 차단
+      toolbar.addEventListener("mousedown", (e) => {
+        const btn = e.target.closest(".md-btn, .dropdown-item");
+        if (btn) {
+          e.preventDefault();
+        }
+      });
+
+      // 툴바 버튼 클릭 처리
+      toolbar.addEventListener("click", (e) => {
+        const btn = e.target.closest(".md-btn, .dropdown-item");
+        if (!btn) return;
+        const action = btn.dataset.action;
+        if (action) {
+          this.handleAction(action);
+        }
+      });
+    }
+
+    // 에디터 바깥 영역 클릭 시 열려있는 드롭다운 메뉴 닫기
+    document.addEventListener("click", (e) => {
+      if (!this.container.contains(e.target)) {
+        this.closeAllDropdowns();
+      }
+    });
+
+    // 텍스트 입력 시 실시간 미리보기 갱신
+    this.textarea.addEventListener("input", () => {
+      this.updatePreview();
+    });
+  }
+
+  // 드롭다운 메뉴 닫기
+  closeAllDropdowns() {
+    if (this.addMenu) this.addMenu.classList.add("hidden");
+    if (this.moreMenu) this.moreMenu.classList.add("hidden");
+  }
+
+  // 툴바 기능별 분기 처리
+  handleAction(action) {
+    switch (action) {
+      case "toggle-add":
+        if (this.moreMenu) this.moreMenu.classList.add("hidden");
+        if (this.addMenu) this.addMenu.classList.toggle("hidden");
+        break;
+
+      case "toggle-more":
+        if (this.addMenu) this.addMenu.classList.add("hidden");
+        if (this.moreMenu) this.moreMenu.classList.toggle("hidden");
+        break;
+
+      case "bold":
+        this.wrapSelection("**", "**", "굵은 텍스트");
+        this.closeAllDropdowns();
+        break;
+
+      case "underline":
+        this.wrapSelection("<u>", "</u>", "밑줄 텍스트");
+        this.closeAllDropdowns();
+        break;
+
+      case "highlight":
+        this.wrapSelection("==", "==", "형광펜 텍스트");
+        this.closeAllDropdowns();
+        break;
+
+      case "undo":
+        this.textarea.focus();
+        document.execCommand("undo");
+        this.updatePreview();
+        break;
+
+      case "redo":
+        this.textarea.focus();
+        document.execCommand("redo");
+        this.updatePreview();
+        break;
+
+      case "quote":
+        this.prefixLines("> ", "인용 문구를 입력하세요");
+        this.closeAllDropdowns();
+        break;
+
+      case "link":
+        this.insertLink();
+        this.closeAllDropdowns();
+        break;
+
+      case "checklist":
+        this.prefixLines("- [ ] ", "할 일 항목");
+        this.closeAllDropdowns();
+        break;
+
+      case "bullet-list":
+        this.prefixLines("- ", "목록 항목");
+        this.closeAllDropdowns();
+        break;
+
+      case "numbered-list":
+        this.prefixLines("1. ", "번호 목록 항목");
+        this.closeAllDropdowns();
+        break;
+
+      case "code-block":
+        this.insertCodeBlock();
+        this.closeAllDropdowns();
+        break;
+
+      case "heading-1":
+        this.prefixLines("# ", "대제목 내용");
+        this.closeAllDropdowns();
+        break;
+
+      case "heading-2":
+        this.prefixLines("## ", "중제목 내용");
+        this.closeAllDropdowns();
+        break;
+
+      case "heading-3":
+        this.prefixLines("### ", "소제목 내용");
+        this.closeAllDropdowns();
+        break;
+
+      case "strikethrough":
+        this.wrapSelection("~~", "~~", "취소선 텍스트");
+        this.closeAllDropdowns();
+        break;
+
+      case "inline-code":
+        this.wrapSelection("`", "`", "코드");
+        this.closeAllDropdowns();
+        break;
+
+      case "details-toggle":
+        this.insertDetails();
+        this.closeAllDropdowns();
+        break;
+
+      case "insert-image":
+        this.insertImage();
+        this.closeAllDropdowns();
+        break;
+
+      case "insert-table":
+        this.insertTable();
+        this.closeAllDropdowns();
+        break;
+
+      case "insert-callout":
+        this.insertCallout();
+        this.closeAllDropdowns();
+        break;
+
+      case "insert-hr":
+        this.insertText("\n\n---\n\n");
+        this.closeAllDropdowns();
+        break;
+    }
+  }
+
+  // [UX 핵심] 텍스트 앞뒤 감싸기 및 드래그 영역 유지
+  wrapSelection(prefix, suffix, defaultText) {
+    const el = this.textarea;
+    el.focus();
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const val = el.value;
+    const hasSelection = start !== end;
+    const selectedText = hasSelection ? val.substring(start, end) : defaultText;
+
+    const replacement = prefix + selectedText + suffix;
+    el.setRangeText(replacement, start, end, "select");
+
+    if (!hasSelection) {
+      // 선택된 내용이 없었으면 기본 텍스트 부분을 드래그 선택 상태로 지정 (바로 타이핑하여 수정 가능)
+      el.setSelectionRange(start + prefix.length, start + prefix.length + defaultText.length);
+    } else {
+      // 선택된 내용이 있었으면 서식이 감싸진 내부 텍스트를 계속 선택 상태로 유지
+      el.setSelectionRange(start + prefix.length, start + prefix.length + selectedText.length);
+    }
+
+    this.updatePreview();
+  }
+
+  // 줄 단위 접두사 삽입 (인용구, 목록, 체크박스 등)
+  prefixLines(prefix, defaultText) {
+    const el = this.textarea;
+    el.focus();
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const val = el.value;
+
+    if (start === end) {
+      // 커서 위치에서 해당 줄의 시작 위치 탐색
+      const lineStart = val.lastIndexOf("\n", start - 1) + 1;
+      const currentLine = val.substring(lineStart, start);
+      if (currentLine.trim().length === 0) {
+        const insert = prefix + defaultText;
+        el.setRangeText(insert, start, end, "select");
+        el.setSelectionRange(start + prefix.length, start + insert.length);
+      } else {
+        el.setRangeText(prefix, lineStart, lineStart, "select");
+        el.setSelectionRange(start + prefix.length, start + prefix.length);
+      }
+    } else {
+      // 여러 줄이 드래그 선택된 경우 각 줄마다 접두사 적용
+      const selected = val.substring(start, end);
+      const lines = selected.split("\n");
+      const transformed = lines.map((line) => (line.startsWith(prefix) ? line : prefix + line)).join("\n");
+      el.setRangeText(transformed, start, end, "select");
+      el.setSelectionRange(start, start + transformed.length);
+    }
+
+    this.updatePreview();
+  }
+
+  // 단순 텍스트 삽입
+  insertText(text) {
+    const el = this.textarea;
+    el.focus();
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    el.setRangeText(text, start, end, "end");
+    this.updatePreview();
+  }
+
+  // 하이퍼링크 삽입
+  insertLink() {
+    const el = this.textarea;
+    el.focus();
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const selected = el.value.substring(start, end) || "링크 텍스트";
+    const linkTemplate = `[${selected}](https://)`;
+    el.setRangeText(linkTemplate, start, end, "select");
+    const urlStart = start + selected.length + 3;
+    el.setSelectionRange(urlStart, urlStart + 8);
+    this.updatePreview();
+  }
+
+  // 이미지 템플릿 삽입
+  insertImage() {
+    const el = this.textarea;
+    el.focus();
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const selected = el.value.substring(start, end) || "이미지 설명";
+    const imgTemplate = `![${selected}](https://images.unsplash.com/photo-1518770660439-4636190af475?w=800)`;
+    el.setRangeText(imgTemplate, start, end, "select");
+    this.updatePreview();
+  }
+
+  // 표(테이블) 템플릿 삽입
+  insertTable() {
+    const tableTemplate = `\n| 제목 1 | 제목 2 | 제목 3 |\n| :--- | :---: | ---: |\n| 내용 1 | 내용 2 | 내용 3 |\n| 항목 A | 항목 B | 항목 C |\n\n`;
+    this.insertText(tableTemplate);
+  }
+
+  // 안내 박스(콜아웃) 삽입
+  insertCallout() {
+    const calloutTemplate = `\n> 💡 **안내 및 주의사항**\n> 여기에 중요한 내용을 상세히 작성하세요.\n\n`;
+    this.insertText(calloutTemplate);
+  }
+
+  // 접기/펼치기 블록 삽입
+  insertDetails() {
+    const detailsTemplate = `\n<details>\n<summary>👉 상세 내용 열기 (클릭)</summary>\n\n숨겨진 세부 정보나 본문 내용을 여기에 작성합니다.\n</details>\n\n`;
+    this.insertText(detailsTemplate);
+  }
+
+  // 코드 블록 삽입
+  insertCodeBlock() {
+    const el = this.textarea;
+    el.focus();
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const selected = el.value.substring(start, end);
+
+    if (selected) {
+      const code = "```\n" + selected + "\n```";
+      el.setRangeText(code, start, end, "select");
+      el.setSelectionRange(start + 4, start + 4 + selected.length);
+    } else {
+      const code = '```python\n# 코드를 여기에 입력하세요\nprint("Hello, FastAPI Board!")\n```\n';
+      el.setRangeText(code, start, end, "select");
+      el.setSelectionRange(start + 10, start + 10 + 13);
+    }
+    this.updatePreview();
+  }
+
+  // 탭 전환 (작성 vs 미리보기)
+  switchTab(tabName) {
+    if (tabName === "preview") {
+      this.updatePreview();
+      if (this.editPane) this.editPane.classList.add("hidden");
+      if (this.previewPane) this.previewPane.classList.remove("hidden");
+    } else {
+      if (this.previewPane) this.previewPane.classList.add("hidden");
+      if (this.editPane) this.editPane.classList.remove("hidden");
+      setTimeout(() => this.textarea.focus(), 50);
+    }
+  }
+
+  // 실시간 미리보기 렌더링
+  updatePreview() {
+    if (!this.previewContent) return;
+    const markdown = this.textarea.value.trim();
+    if (!markdown) {
+      this.previewContent.innerHTML = '<p class="preview-placeholder">작성창에 내용을 입력하면 여기에 실시간으로 서식이 반영됩니다.</p>';
+      return;
+    }
+    this.previewContent.innerHTML = app.renderMarkdown(markdown);
+  }
+
+  // 상태 초기화
+  reset() {
+    this.closeAllDropdowns();
+    this.switchTab("write");
+  }
+}
+
 // 전역 앱 객체 정의
 const app = {
   state: {
@@ -14,12 +360,59 @@ const app = {
     theme: localStorage.getItem("fastapi_board_theme") || "light"
   },
 
+  writeEditor: null,
+  editEditor: null,
+
   // --- 1. 초기화 메서드 ---
   init() {
     this.applyTheme(this.state.theme);
     this.bindEvents();
     this.loadPosts();
     this.loadCategories();
+
+    // 마크다운 에디터 인스턴스 초기화
+    this.writeEditor = new MarkdownEditor({
+      containerId: "writeEditor",
+      textareaId: "writeContent",
+      previewPaneId: "writePreviewPane",
+      previewContentId: "writePreviewContent",
+      editPaneId: "writeEditPane",
+      addMenuId: "writeAddMenu",
+      moreMenuId: "writeMoreMenu"
+    });
+
+    this.editEditor = new MarkdownEditor({
+      containerId: "editEditor",
+      textareaId: "editContent",
+      previewPaneId: "editPreviewPane",
+      previewContentId: "editPreviewContent",
+      editPaneId: "editEditPane",
+      addMenuId: "editAddMenu",
+      moreMenuId: "editMoreMenu"
+    });
+  },
+
+  // --- 1-1. 서버 응답 에러 안전 파싱 헬퍼 (JSON 파싱 에러 방지) ---
+  async parseErrorMessage(response, defaultMsg = "요청 처리 중 오류가 발생했습니다.") {
+    try {
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const data = await response.json();
+        if (data && data.detail) {
+          if (Array.isArray(data.detail)) {
+            return data.detail.map(d => d.msg).join(", ");
+          }
+          return data.detail;
+        }
+      }
+      const text = await response.text();
+      if (text && text.trim().length > 0 && text.length < 200) {
+        return text.trim();
+      }
+    } catch (e) {
+      console.warn("에러 메시지 파싱 중 오류:", e);
+    }
+    return `${defaultMsg} (HTTP ${response.status})`;
   },
 
   // --- 2. 테마 설정 (라이트 / 다크) ---
@@ -104,6 +497,25 @@ const app = {
       overlay.addEventListener("click", (e) => {
         if (e.target === overlay) {
           overlay.classList.add("hidden");
+        }
+      });
+    });
+
+    // 에디터 탭 전환 이벤트 (작성 / 미리보기)
+    document.querySelectorAll(".editor-tabs").forEach((tabContainer) => {
+      tabContainer.addEventListener("click", (e) => {
+        const btn = e.target.closest(".tab-btn");
+        if (!btn) return;
+        const targetTab = btn.dataset.tab;
+        const editorType = tabContainer.dataset.editor;
+
+        tabContainer.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+
+        if (editorType === "write" && this.writeEditor) {
+          this.writeEditor.switchTab(targetTab);
+        } else if (editorType === "edit" && this.editEditor) {
+          this.editEditor.switchTab(targetTab);
         }
       });
     });
@@ -290,7 +702,8 @@ const app = {
     try {
       const response = await fetch(`/api/posts/${postId}`);
       if (!response.ok) {
-        throw new Error("게시글을 찾을 수 없습니다.");
+        const errMsg = await this.parseErrorMessage(response, "게시글을 찾을 수 없습니다.");
+        throw new Error(errMsg);
       }
       const post = await response.json();
       this.state.currentPost = post;
@@ -302,7 +715,8 @@ const app = {
       document.getElementById("viewAvatar").textContent = post.author.charAt(0).toUpperCase();
       document.getElementById("viewDate").textContent = this.formatDate(post.created_at, true);
       document.getElementById("viewViews").textContent = post.views;
-      document.getElementById("viewContent").textContent = post.content;
+      // 마크다운 문법을 파싱하고 살균된 HTML로 본문 렌더링
+      document.getElementById("viewContent").innerHTML = this.renderMarkdown(post.content);
 
       const categoryBadge = document.getElementById("viewCategory");
       categoryBadge.textContent = post.category;
@@ -321,6 +735,16 @@ const app = {
   // --- 10. 신규 게시글 작성 처리 ---
   openWriteModal() {
     document.getElementById("writeForm").reset();
+
+    // 마크다운 에디터 초기화 (작성 탭으로 복귀 및 드롭다운 닫기)
+    if (this.writeEditor) {
+      this.writeEditor.reset();
+      const tabs = document.querySelector('.editor-tabs[data-editor="write"]');
+      if (tabs) {
+        tabs.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === "write"));
+      }
+    }
+
     this.openModal("writeModal");
     setTimeout(() => document.getElementById("writeTitle").focus(), 100);
   },
@@ -351,8 +775,8 @@ const app = {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "게시글 등록에 실패했습니다.");
+        const errMsg = await this.parseErrorMessage(response, "게시글 등록에 실패했습니다.");
+        throw new Error(errMsg);
       }
 
       this.closeModal("writeModal");
@@ -384,6 +808,15 @@ const app = {
     document.getElementById("editContent").value = post.content;
     document.getElementById("editPassword").value = "";
 
+    // 마크다운 에디터 초기화
+    if (this.editEditor) {
+      this.editEditor.reset();
+      const tabs = document.querySelector('.editor-tabs[data-editor="edit"]');
+      if (tabs) {
+        tabs.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === "write"));
+      }
+    }
+
     this.openModal("editModal");
     setTimeout(() => document.getElementById("editTitle").focus(), 100);
   },
@@ -409,8 +842,8 @@ const app = {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "수정에 실패했습니다.");
+        const errMsg = await this.parseErrorMessage(response, "수정에 실패했습니다.");
+        throw new Error(errMsg);
       }
 
       const updatedPost = await response.json();
@@ -461,8 +894,8 @@ const app = {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "삭제에 실패했습니다.");
+        const errMsg = await this.parseErrorMessage(response, "삭제에 실패했습니다.");
+        throw new Error(errMsg);
       }
 
       this.closeModal("deleteModal");
@@ -554,6 +987,39 @@ const app = {
       return `${year}.${month}.${day} ${hours}:${minutes}`;
     }
     return `${year}.${month}.${day}`;
+  },
+
+  // --- 17. 유틸리티: 마크다운 파싱 & XSS 방어 살균 렌더러 ---
+  renderMarkdown(markdownText) {
+    if (!markdownText) return "";
+
+    // 1. 형광펜 문법 (==선택텍스트==) -> <mark>선택텍스트</mark> 치환
+    let text = String(markdownText).replace(/==([^=\n\r]+)==/g, "<mark>$1</mark>");
+
+    // 2. marked.js 라이브러리가 로드되어 있으면 파싱
+    if (typeof marked !== "undefined" && marked.parse) {
+      try {
+        marked.setOptions({
+          gfm: true,
+          breaks: true
+        });
+        const rawHtml = marked.parse(text);
+
+        // 3. DOMPurify로 XSS 방어 살균 (mark, u, details, summary 등 허용)
+        if (typeof DOMPurify !== "undefined") {
+          return DOMPurify.sanitize(rawHtml, {
+            ADD_TAGS: ["mark", "u", "details", "summary", "input"],
+            ADD_ATTR: ["type", "checked", "disabled"]
+          });
+        }
+        return rawHtml;
+      } catch (err) {
+        console.warn("마크다운 파싱 에러:", err);
+      }
+    }
+
+    // fallback: 순수 텍스트 이스케이프 및 줄바꿈 보존
+    return this.escapeHtml(text).replace(/\n/g, "<br/>");
   }
 };
 

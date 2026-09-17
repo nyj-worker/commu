@@ -14,6 +14,10 @@
 
   <!-- 스타일시트 -->
   <link rel="stylesheet" href="/css/style.css" />
+
+  <!-- 마크다운 파서 (marked.js) & XSS 보안 살균 (DOMPurify) CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 </head>
 <body data-theme="light">
   <!-- 배경 장식용 그라디언트 글로우 -->
@@ -151,7 +155,7 @@
   <!-- 모달 1: 글쓰기 모달 -->
   <!-- ========================================================= -->
   <div class="modal-overlay hidden" id="writeModal">
-    <div class="modal-card">
+    <div class="modal-card modal-editor">
       <div class="modal-header">
         <h2>새 게시글 작성</h2>
         <button class="btn-close" onclick="app.closeModal('writeModal')">&times;</button>
@@ -187,8 +191,193 @@
           </div>
 
           <div class="form-group">
-            <label for="writeContent">내용 <span class="req">*</span></label>
-            <textarea id="writeContent" rows="7" placeholder="게시글 내용을 자세히 입력하세요..." required></textarea>
+            <div class="editor-header">
+              <label for="writeContent">내용 <span class="req">*</span></label>
+              <div class="editor-tabs" data-editor="write">
+                <button type="button" class="tab-btn active" data-tab="write">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                  <span>작성</span>
+                </button>
+                <button type="button" class="tab-btn" data-tab="preview">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  <span>미리보기</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 마크다운 툴바 및 에디터 래퍼 -->
+            <div class="markdown-editor" id="writeEditor">
+              <div class="markdown-toolbar">
+                <!-- 1. 추가 (+) -->
+                <div class="toolbar-dropdown-wrap">
+                  <button type="button" class="md-btn" data-action="toggle-add" title="블록/요소 추가">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="3" y="3" width="18" height="18" rx="4"></rect>
+                      <line x1="12" y1="8" x2="12" y2="16"></line>
+                      <line x1="8" y1="12" x2="16" y2="12"></line>
+                    </svg>
+                  </button>
+                  <div class="toolbar-dropdown hidden" id="writeAddMenu">
+                    <button type="button" class="dropdown-item" data-action="insert-image">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                      <span>이미지 삽입</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="insert-table">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
+                      <span>표 (테이블) 템플릿</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="insert-callout">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      <span>안내 박스 (Callout)</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="insert-hr">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/></svg>
+                      <span>구분선 (---)</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 2. 형광펜 (Highlighter) -->
+                <button type="button" class="md-btn" data-action="highlight" title="형광펜 하이라이트 (==선택텍스트==)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="m9 11-6 6v3h3l6-6"></path>
+                    <path d="m22 7-4.6-4.6a2 2 0 0 0-2.8 0l-5.2 5.2 7.4 7.4 5.2-5.2a2 2 0 0 0 0-2.8Z"></path>
+                    <line x1="2" y1="22" x2="12" y2="22" stroke-width="2.5"></line>
+                  </svg>
+                </button>
+
+                <!-- 3. 밑줄 (A_) -->
+                <button type="button" class="md-btn font-bold-btn" data-action="underline" title="밑줄 (<u>선택텍스트</u>)">
+                  <span class="btn-text-icon btn-underline-a">A</span>
+                </button>
+
+                <!-- 4. 굵게 (B) -->
+                <button type="button" class="md-btn font-bold-btn" data-action="bold" title="굵게 (**선택텍스트**)">
+                  <span class="btn-text-icon">B</span>
+                </button>
+
+                <!-- 5. 실행 취소 (Undo ↺) -->
+                <button type="button" class="md-btn" data-action="undo" title="실행 취소 (Undo)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 7v6h6"></path>
+                    <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+                  </svg>
+                </button>
+
+                <!-- 6. 다시 실행 (Redo ↻) -->
+                <button type="button" class="md-btn" data-action="redo" title="다시 실행 (Redo)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 7v6h-6"></path>
+                    <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path>
+                  </svg>
+                </button>
+
+                <!-- 7. 인용구 / 콜아웃 (>≡) -->
+                <button type="button" class="md-btn" data-action="quote" title="인용구 (> 선택텍스트)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect width="18" height="18" x="3" y="3" rx="3"></rect>
+                    <path d="m8 10 3 2-3 2"></path>
+                    <line x1="13" y1="14" x2="16" y2="14"></line>
+                  </svg>
+                </button>
+
+                <!-- 8. 링크 (🔗) -->
+                <button type="button" class="md-btn" data-action="link" title="하이퍼링크 ([텍스트](URL))">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                  </svg>
+                </button>
+
+                <!-- 9. 체크박스 / 할 일 (☑) -->
+                <button type="button" class="md-btn" data-action="checklist" title="할 일 체크박스 (- [ ] 선택텍스트)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect width="18" height="18" x="3" y="3" rx="3"></rect>
+                    <path d="m8 12 2.5 2.5 5.5-5.5"></path>
+                  </svg>
+                </button>
+
+                <!-- 10. 글머리 기호 목록 (•) -->
+                <button type="button" class="md-btn" data-action="bullet-list" title="글머리 기호 목록 (- 선택텍스트)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="9" y1="6" x2="20" y2="6"></line>
+                    <line x1="9" y1="12" x2="20" y2="12"></line>
+                    <line x1="9" y1="18" x2="20" y2="18"></line>
+                    <circle cx="4" cy="6" r="1.5" fill="currentColor"></circle>
+                    <circle cx="4" cy="12" r="1.5" fill="currentColor"></circle>
+                    <circle cx="4" cy="18" r="1.5" fill="currentColor"></circle>
+                  </svg>
+                </button>
+
+                <!-- 11. 번호 매기기 목록 (1.) -->
+                <button type="button" class="md-btn" data-action="numbered-list" title="번호 매기기 목록 (1. 선택텍스트)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="10" y1="6" x2="20" y2="6"></line>
+                    <line x1="10" y1="12" x2="20" y2="12"></line>
+                    <line x1="10" y1="18" x2="20" y2="18"></line>
+                    <path d="M4 7h1v-3"></path>
+                    <path d="M3 13h2a1 1 0 0 0 0-2H3v-1h2"></path>
+                  </svg>
+                </button>
+
+                <!-- 12. 코드 블록 (</>) -->
+                <button type="button" class="md-btn" data-action="code-block" title="코드 블록 (```\n선택텍스트\n```)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="16 18 22 12 16 6"></polyline>
+                    <polyline points="8 6 2 12 8 18"></polyline>
+                  </svg>
+                </button>
+
+                <!-- 13. 더보기 (...) 드롭다운 -->
+                <div class="toolbar-dropdown-wrap">
+                  <button type="button" class="md-btn" data-action="toggle-more" title="추가 서식 (제목, 취소선, 구분선 등)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="1.5"></circle>
+                      <circle cx="19" cy="12" r="1.5"></circle>
+                      <circle cx="5" cy="12" r="1.5"></circle>
+                    </svg>
+                  </button>
+                  <div class="toolbar-dropdown hidden" id="writeMoreMenu">
+                    <button type="button" class="dropdown-item" data-action="heading-1">
+                      <span class="item-badge">H1</span>
+                      <span>대제목 (# )</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="heading-2">
+                      <span class="item-badge">H2</span>
+                      <span>중제목 (## )</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="heading-3">
+                      <span class="item-badge">H3</span>
+                      <span>소제목 (### )</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="strikethrough">
+                      <span class="item-badge strike-badge">~~</span>
+                      <span>취소선 (~~선택텍스트~~)</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="inline-code">
+                      <span class="item-badge">` `</span>
+                      <span>인라인 코드</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="details-toggle">
+                      <span class="item-badge">▶</span>
+                      <span>접기/펼치기 블록</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 편집 영역 (작성 뷰) -->
+              <div class="editor-pane active" id="writeEditPane">
+                <textarea id="writeContent" rows="9" placeholder="마크다운 서식을 활용하여 내용을 작성하세요. (위 툴바 버튼을 누르면 서식이 즉시 적용됩니다)" required></textarea>
+              </div>
+
+              <!-- 미리보기 영역 (실시간 렌더링 뷰) -->
+              <div class="editor-pane hidden" id="writePreviewPane">
+                <div class="markdown-preview" id="writePreviewContent">
+                  <p class="preview-placeholder">작성창에 내용을 입력하면 여기에 실시간으로 서식이 반영됩니다.</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -266,7 +455,7 @@
   <!-- 모달 3: 게시글 수정 모달 -->
   <!-- ========================================================= -->
   <div class="modal-overlay hidden" id="editModal">
-    <div class="modal-card">
+    <div class="modal-card modal-editor">
       <div class="modal-header">
         <h2>게시글 수정</h2>
         <button class="btn-close" onclick="app.closeModal('editModal')">&times;</button>
@@ -291,8 +480,193 @@
           </div>
 
           <div class="form-group">
-            <label for="editContent">내용 <span class="req">*</span></label>
-            <textarea id="editContent" rows="7" required></textarea>
+            <div class="editor-header">
+              <label for="editContent">내용 <span class="req">*</span></label>
+              <div class="editor-tabs" data-editor="edit">
+                <button type="button" class="tab-btn active" data-tab="write">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                  <span>작성</span>
+                </button>
+                <button type="button" class="tab-btn" data-tab="preview">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  <span>미리보기</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 마크다운 툴바 및 에디터 래퍼 (수정용) -->
+            <div class="markdown-editor" id="editEditor">
+              <div class="markdown-toolbar">
+                <!-- 1. 추가 (+) -->
+                <div class="toolbar-dropdown-wrap">
+                  <button type="button" class="md-btn" data-action="toggle-add" title="블록/요소 추가">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="3" y="3" width="18" height="18" rx="4"></rect>
+                      <line x1="12" y1="8" x2="12" y2="16"></line>
+                      <line x1="8" y1="12" x2="16" y2="12"></line>
+                    </svg>
+                  </button>
+                  <div class="toolbar-dropdown hidden" id="editAddMenu">
+                    <button type="button" class="dropdown-item" data-action="insert-image">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                      <span>이미지 삽입</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="insert-table">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
+                      <span>표 (테이블) 템플릿</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="insert-callout">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      <span>안내 박스 (Callout)</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="insert-hr">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/></svg>
+                      <span>구분선 (---)</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 2. 형광펜 (Highlighter) -->
+                <button type="button" class="md-btn" data-action="highlight" title="형광펜 하이라이트 (==선택텍스트==)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="m9 11-6 6v3h3l6-6"></path>
+                    <path d="m22 7-4.6-4.6a2 2 0 0 0-2.8 0l-5.2 5.2 7.4 7.4 5.2-5.2a2 2 0 0 0 0-2.8Z"></path>
+                    <line x1="2" y1="22" x2="12" y2="22" stroke-width="2.5"></line>
+                  </svg>
+                </button>
+
+                <!-- 3. 밑줄 (A_) -->
+                <button type="button" class="md-btn font-bold-btn" data-action="underline" title="밑줄 (<u>선택텍스트</u>)">
+                  <span class="btn-text-icon btn-underline-a">A</span>
+                </button>
+
+                <!-- 4. 굵게 (B) -->
+                <button type="button" class="md-btn font-bold-btn" data-action="bold" title="굵게 (**선택텍스트**)">
+                  <span class="btn-text-icon">B</span>
+                </button>
+
+                <!-- 5. 실행 취소 (Undo ↺) -->
+                <button type="button" class="md-btn" data-action="undo" title="실행 취소 (Undo)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 7v6h6"></path>
+                    <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+                  </svg>
+                </button>
+
+                <!-- 6. 다시 실행 (Redo ↻) -->
+                <button type="button" class="md-btn" data-action="redo" title="다시 실행 (Redo)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 7v6h-6"></path>
+                    <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path>
+                  </svg>
+                </button>
+
+                <!-- 7. 인용구 / 콜아웃 (>≡) -->
+                <button type="button" class="md-btn" data-action="quote" title="인용구 (> 선택텍스트)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect width="18" height="18" x="3" y="3" rx="3"></rect>
+                    <path d="m8 10 3 2-3 2"></path>
+                    <line x1="13" y1="14" x2="16" y2="14"></line>
+                  </svg>
+                </button>
+
+                <!-- 8. 링크 (🔗) -->
+                <button type="button" class="md-btn" data-action="link" title="하이퍼링크 ([텍스트](URL))">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                  </svg>
+                </button>
+
+                <!-- 9. 체크박스 / 할 일 (☑) -->
+                <button type="button" class="md-btn" data-action="checklist" title="할 일 체크박스 (- [ ] 선택텍스트)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect width="18" height="18" x="3" y="3" rx="3"></rect>
+                    <path d="m8 12 2.5 2.5 5.5-5.5"></path>
+                  </svg>
+                </button>
+
+                <!-- 10. 글머리 기호 목록 (•) -->
+                <button type="button" class="md-btn" data-action="bullet-list" title="글머리 기호 목록 (- 선택텍스트)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="9" y1="6" x2="20" y2="6"></line>
+                    <line x1="9" y1="12" x2="20" y2="12"></line>
+                    <line x1="9" y1="18" x2="20" y2="18"></line>
+                    <circle cx="4" cy="6" r="1.5" fill="currentColor"></circle>
+                    <circle cx="4" cy="12" r="1.5" fill="currentColor"></circle>
+                    <circle cx="4" cy="18" r="1.5" fill="currentColor"></circle>
+                  </svg>
+                </button>
+
+                <!-- 11. 번호 매기기 목록 (1.) -->
+                <button type="button" class="md-btn" data-action="numbered-list" title="번호 매기기 목록 (1. 선택텍스트)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="10" y1="6" x2="20" y2="6"></line>
+                    <line x1="10" y1="12" x2="20" y2="12"></line>
+                    <line x1="10" y1="18" x2="20" y2="18"></line>
+                    <path d="M4 7h1v-3"></path>
+                    <path d="M3 13h2a1 1 0 0 0 0-2H3v-1h2"></path>
+                  </svg>
+                </button>
+
+                <!-- 12. 코드 블록 (</>) -->
+                <button type="button" class="md-btn" data-action="code-block" title="코드 블록 (```\n선택텍스트\n```)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="16 18 22 12 16 6"></polyline>
+                    <polyline points="8 6 2 12 8 18"></polyline>
+                  </svg>
+                </button>
+
+                <!-- 13. 더보기 (...) 드롭다운 -->
+                <div class="toolbar-dropdown-wrap">
+                  <button type="button" class="md-btn" data-action="toggle-more" title="추가 서식 (제목, 취소선, 구분선 등)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="1.5"></circle>
+                      <circle cx="19" cy="12" r="1.5"></circle>
+                      <circle cx="5" cy="12" r="1.5"></circle>
+                    </svg>
+                  </button>
+                  <div class="toolbar-dropdown hidden" id="editMoreMenu">
+                    <button type="button" class="dropdown-item" data-action="heading-1">
+                      <span class="item-badge">H1</span>
+                      <span>대제목 (# )</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="heading-2">
+                      <span class="item-badge">H2</span>
+                      <span>중제목 (## )</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="heading-3">
+                      <span class="item-badge">H3</span>
+                      <span>소제목 (### )</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="strikethrough">
+                      <span class="item-badge strike-badge">~~</span>
+                      <span>취소선 (~~선택텍스트~~)</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="inline-code">
+                      <span class="item-badge">` `</span>
+                      <span>인라인 코드</span>
+                    </button>
+                    <button type="button" class="dropdown-item" data-action="details-toggle">
+                      <span class="item-badge">▶</span>
+                      <span>접기/펼치기 블록</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 편집 영역 (작성 뷰) -->
+              <div class="editor-pane active" id="editEditPane">
+                <textarea id="editContent" rows="9" placeholder="내용을 입력하세요..." required></textarea>
+              </div>
+
+              <!-- 미리보기 영역 (실시간 렌더링 뷰) -->
+              <div class="editor-pane hidden" id="editPreviewPane">
+                <div class="markdown-preview" id="editPreviewContent">
+                  <p class="preview-placeholder">작성창에 내용을 입력하면 여기에 실시간으로 서식이 반영됩니다.</p>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="form-group">
