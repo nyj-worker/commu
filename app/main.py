@@ -6,8 +6,10 @@
 """
 
 import os
+import traceback
 from typing import Optional, List
-from fastapi import FastAPI, Depends, HTTPException, Query, status
+from fastapi import FastAPI, Depends, HTTPException, Query, status, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -25,7 +27,18 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# 3. CORS(교차 출처 리소스 공유) 미들웨어 설정
+# 3. 전역 예외 처리기 등록
+# 서버 내부에서 예기치 않은 오류가 발생해도 일반 텍스트나 HTML이 아닌 일관된 JSON 형식으로 에러를 반환합니다.
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    print(f"[서버 오류 발생] {request.method} {request.url}: {exc}")
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": f"서버 내부 오류가 발생했습니다: {str(exc)}"}
+    )
+
+# 4. CORS(교차 출처 리소스 공유) 미들웨어 설정
 # 개발 및 브라우저 환경에서 API 요청이 원활하게 통과하도록 허용합니다.
 app.add_middleware(
     CORSMiddleware,

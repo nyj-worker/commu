@@ -5,20 +5,28 @@
 - SQLAlchemy ORM을 사용하여 파이썬 객체와 DB 테이블을 매핑할 수 있는 기반을 제공합니다.
 """
 
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# 1. SQLite 데이터베이스 접속 주소 설정
-# "./board.db"는 현재 실행 경로에 board.db라는 파일로 데이터를 저장하겠다는 의미입니다.
-SQLALCHEMY_DATABASE_URL = "sqlite:///./board.db"
+# 1. 데이터베이스 접속 주소 설정
+# - 환경변수에 DATABASE_URL이 설정되어 있으면 해당 주소(클라우드 DB)를 사용하고,
+# - 설정되어 있지 않으면 기본값으로 로컬 SQLite 파일(sqlite:///./board.db)을 사용합니다.
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./board.db")
+
+# 일부 클라우드(Render, Supabase 등)에서 postgres:// 로 시작하는 경우 SQLAlchemy 2.0 호환을 위해 postgresql:// 로 치환합니다.
+if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
+    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 # 2. 데이터베이스 엔진 생성
-# SQLite는 기본적으로 단일 스레드 작업에 최적화되어 있으므로,
-# FastAPI처럼 여러 요청을 동시에 처리하는 비동기/멀티스레드 환경에서는
-# connect_args={"check_same_thread": False} 옵션이 반드시 필요합니다.
+# SQLite일 때만 멀티스레드 접속 허용 옵션(check_same_thread=False)을 적용합니다.
+connect_args = {}
+if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False}
+    connect_args=connect_args
 )
 
 # 3. 데이터베이스 세션 팩토리(SessionLocal) 생성
